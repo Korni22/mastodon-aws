@@ -1,0 +1,82 @@
+version: '3.3'
+services:
+
+  web:
+    image: tootsuite/mastodon:v2.5.0rc1
+    restart: always
+    env_file: .env.production
+    command: bash -c "rm -f /mastodon/tmp/pids/server.pid; bundle exec rails s -p 3000 -b '0.0.0.0'"
+    networks:
+      - external_network
+      - internal_network
+    ports:
+      - "3000:3000"
+    volumes:
+      - /opt/mastodon/public/system:/mastodon/public/system
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=mastodon_internal_network"
+        - "traefik.frontend.entryPoints=http,https"
+        - "traefik.frontend.rule=Host:ffm.social"
+        - "traefik.port=3000"
+
+  streaming:
+    image: tootsuite/mastodon:v2.5.0rc1
+    restart: always
+    env_file: .env.production
+    command: yarn start
+    networks:
+      - external_network
+      - internal_network
+    ports:
+      - "4000:4000"
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=mastodon_internal_network"
+        - "traefik.frontend.entryPoints=http,https"
+        - "traefik.frontend.rule=Host:ffm.social; PathPrefix: /api/v1/streaming"
+        - "traefik.port=4000"
+
+  sidekiq:
+    image: tootsuite/mastodon:v2.5.0rc1
+    restart: always
+    env_file: .env.production
+    command: bundle exec sidekiq -q default -q mailers -q pull -q push
+    networks:
+      - external_network
+      - internal_network
+    volumes:
+      - /opt/mastodon/public/system:/mastodon/public/system
+
+  traefik:
+    image: traefik:alpine
+    command: --acme.acmelogging --logLevel=DEBUG
+    ports:
+      - 80:80
+      - 443:443
+      - 8080:8080
+    networks:
+      - external_network
+      - internal_network
+    configs:
+      - source: traefik.toml
+        target: /etc/traefik/traefik.toml
+      - source: acme.json
+        target: /acme.json
+        mode: 0600
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # - /opt/traefik/acme.json:/acme.json
+
+networks:
+  external_network:
+  internal_network:
+    internal: true
+
+configs:
+  traefik.toml:
+    file: /opt/traefik/traefik.toml
+  acme.json:
+    file: /opt/traefik/acme.json
